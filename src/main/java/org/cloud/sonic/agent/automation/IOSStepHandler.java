@@ -18,6 +18,7 @@ package org.cloud.sonic.agent.automation;
 
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import org.cloud.sonic.agent.bridge.android.AndroidDeviceBridgeTool;
 import org.cloud.sonic.agent.bridge.ios.SibTool;
 import org.cloud.sonic.agent.common.enums.ConditionEnum;
 import org.cloud.sonic.agent.common.enums.SonicEnum;
@@ -34,6 +35,7 @@ import org.cloud.sonic.agent.tests.script.GroovyScript;
 import org.cloud.sonic.agent.tests.script.GroovyScriptImpl;
 import org.cloud.sonic.agent.tools.ProcessCommandTool;
 import org.cloud.sonic.agent.tools.SpringTool;
+import org.cloud.sonic.agent.tools.cv.TemMatcherCustom;
 import org.cloud.sonic.agent.tools.file.DownloadTool;
 import org.cloud.sonic.agent.tools.file.UploadTools;
 import org.cloud.sonic.driver.common.enums.PasteboardType;
@@ -52,7 +54,9 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Attribute;
 import org.jsoup.nodes.Document;
 
+import javax.imageio.ImageIO;
 import javax.imageio.stream.FileImageOutputStream;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileWriter;
 import java.nio.charset.StandardCharsets;
@@ -550,6 +554,54 @@ public class IOSStepHandler {
 //        }
 //    }
 
+    public void clickByImgTpl(HandleDes handleDes, String des, String pathValue) throws Exception {
+        handleDes.setStepDes("点击图片" + des);
+        handleDes.setDetail(pathValue);
+        File file = null;
+        int ori_width = 1080, ori_height = 1920;
+        if (pathValue.startsWith("http")) {
+            try {
+                file = DownloadTool.download(pathValue);
+            } catch (Exception e) {
+                handleDes.setE(e);
+                return;
+            }
+        }
+        FindResultCustom findResult = null;
+        try {
+            TemMatcherCustom temMatcher = new TemMatcherCustom();
+            File screenPic = getScreenToLocal();
+            BufferedImage bi = ImageIO.read(screenPic);
+            ori_width = bi.getWidth();
+            ori_height = bi.getHeight();
+            findResult = temMatcher.getTemMatchResultWithScale(file, getScreenToLocal(), true);
+
+        } catch (Exception e) {
+            log.sendStepLog(StepType.WARN, "模版匹配算法出错",
+                    "");
+        }
+        if (findResult != null && findResult.getMatchDegree() >= 0.7) {
+            String url = UploadTools.upload(findResult.getFile(), "imageFiles");
+            log.sendStepLog(StepType.INFO, "图片定位到坐标：(" + findResult.getX() + "," + findResult.getY() + ") 匹配度: " + findResult.getMatchDegree() + ";  耗时：" + findResult.getTime() + " ms",
+                    url);
+        } else {
+            handleDes.setE(new Exception("图片定位失败！"));
+        }
+        if (findResult != null && findResult.getMatchDegree() >= 0.7) {
+            try {
+                // ios截图像素为原像素的比例缩小，因此坐标要在原坐标上乘以缩小系数，原作者表示下个版本修复此bug，待下个版本再同步调整
+                int remote_width = iosDriver.getWindowSize().getWidth();
+                int remote_height = iosDriver.getWindowSize().getHeight();
+                int x = (int)((remote_width * 1.0 *findResult.getX()) / ori_width);
+                int y = (int)((remote_height * 1.0 *findResult.getY()) / ori_height);
+                iosDriver.tap(x, y);
+            } catch (Exception e) {
+                log.sendStepLog(StepType.ERROR, "点击" + des + "失败！", "");
+                handleDes.setE(e);
+            }
+        }
+    }
+
     public void clickByImg(HandleDes handleDes, String des, String pathValue) throws Exception {
         handleDes.setStepDes("点击图片" + des);
         handleDes.setDetail(pathValue);
@@ -894,6 +946,10 @@ public class IOSStepHandler {
                 readText(handleDes, step.getString("content"), step.getString("text"));
                 break;
             case "clickByImg":
+                clickByImgTpl(handleDes, eleList.getJSONObject(0).getString("eleName")
+                        , eleList.getJSONObject(0).getString("eleValue"));
+                break;
+            case "clickByImgTpl":
                 clickByImg(handleDes, eleList.getJSONObject(0).getString("eleName")
                         , eleList.getJSONObject(0).getString("eleValue"));
                 break;

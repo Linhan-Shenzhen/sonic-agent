@@ -40,6 +40,8 @@ import org.cloud.sonic.agent.tools.ProcessCommandTool;
 import org.cloud.sonic.agent.tools.SpringTool;
 import org.cloud.sonic.agent.tools.file.DownloadTool;
 import org.cloud.sonic.agent.tools.file.UploadTools;
+import org.cloud.sonic.agent.tools.cv.TemMatcherCustom;
+import org.cloud.sonic.agent.automation.FindResultCustom;
 import org.cloud.sonic.driver.android.AndroidDriver;
 import org.cloud.sonic.driver.android.enmus.AndroidSelector;
 import org.cloud.sonic.driver.android.service.AndroidElement;
@@ -723,6 +725,43 @@ public class AndroidStepHandler {
             }
         } catch (Exception e) {
             handleDes.setE(e);
+        }
+    }
+
+    public void clickByImgTpl(HandleDes handleDes, String des, String pathValue) throws Exception {
+        handleDes.setStepDes("点击图片" + des);
+        handleDes.setDetail(pathValue);
+        File file = null;
+        if (pathValue.startsWith("http")) {
+            try {
+                file = DownloadTool.download(pathValue);
+            } catch (Exception e) {
+                handleDes.setE(e);
+                return;
+            }
+        }
+        FindResultCustom findResult = null;
+        try {
+            TemMatcherCustom temMatcher = new TemMatcherCustom();
+            findResult = temMatcher.getTemMatchResultWithScale(file, getScreenToLocal(), true);
+        } catch (Exception e) {
+            log.sendStepLog(StepType.WARN, "模版匹配算法出错",
+                    "");
+        }
+        if (findResult != null && findResult.getMatchDegree() >= 0.7) {
+            String url = UploadTools.upload(findResult.getFile(), "imageFiles");
+            log.sendStepLog(StepType.INFO, "图片定位到坐标：(" + findResult.getX() + "," + findResult.getY() + ") 匹配度: " + findResult.getMatchDegree() + ";  耗时：" + findResult.getTime() + " ms",
+                    url);
+        } else {
+            handleDes.setE(new Exception("图片定位失败！"));
+        }
+        if (findResult != null && findResult.getMatchDegree() >= 0.7) {
+            try {
+                AndroidDeviceBridgeTool.executeCommand(iDevice, String.format("input tap %d %d", findResult.getX(), findResult.getY()));
+            } catch (Exception e) {
+                log.sendStepLog(StepType.ERROR, "点击" + des + "失败！", "");
+                handleDes.setE(e);
+            }
         }
     }
 
@@ -1647,6 +1686,10 @@ public class AndroidStepHandler {
                 readText(handleDes, step.getString("content"), step.getString("text"));
                 break;
             case "clickByImg":
+                clickByImgTpl(handleDes, eleList.getJSONObject(0).getString("eleName")
+                        , eleList.getJSONObject(0).getString("eleValue"));
+                break;
+            case "clickByImgTpl":
                 clickByImg(handleDes, eleList.getJSONObject(0).getString("eleName")
                         , eleList.getJSONObject(0).getString("eleValue"));
                 break;
